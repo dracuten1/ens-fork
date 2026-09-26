@@ -1,0 +1,11 @@
+{
+  "id": "designer",
+  "name": "Designer",
+  "description": "UI/visual design specialist \u2014 HTML/CSS and JSX mockups, design specs, styling polish; publishes browser-previewable artifacts via Open Design",
+  "icon": "\ud83c\udfa8",
+  "color": "accent-purple",
+  "version": "1.0.0",
+  "tools": { "allow": ["filesystem", "bash", "time", "help", "image", "context", "mcp"] },
+  "created_by": "mother",
+  "created_at": "2026-09-24T22:20:32.086568"
+}

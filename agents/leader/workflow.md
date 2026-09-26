@@ -54,7 +54,7 @@ I support three workflows. The user may invoke them sequentially within a single
    - ⛔ WAIT for git branch creation to COMPLETE before proceeding
 
 2. DURING workflows:
-   - Other agents (developer, reviewer, tester) work normally
+   - Other agents (developer, reviewer, tester, designer) work normally
    - They may commit as needed (their own logic, not leader's concern)
 
 3. AFTER everything completed:
@@ -215,9 +215,12 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
 ```raw
 1. Assess task domain and route to the right specialist:
    ├─ Read-only investigation, codebase question, or library research? (no code changes required) → **Wanderer**
+   ├─ UI design, prototype, mockups, design specs, or visual polish? → **Designer**
    ├─ Application source code, bug fixes, features, tests, scripts → **Developer**
    ├─ Infrastructure, Docker, CI/CD, deployment, Kubernetes, Terraform, environment config → **DevOps**
-   └─ Multi-domain (both code + infrastructure) → **Split**: sequential Developer→DevOps for dependent steps, parallel for independent steps (respecting the 3-instance concurrency limit)
+   └─ Multi-domain (e.g. Design + Code, or Code + Infra) → **Split**:
+      - Frontend Feature with Design: Designer (creates prototype/target screenshot) → Developer (implements code) → Designer (Visual QA)
+      - Code + Infra: sequential Developer→DevOps for dependent steps, parallel for independent steps (respecting the 3-instance concurrency limit)
    
    **For read-only investigation, codebase questions, or library research → delegate to Wanderer instead of Developer.** Wanderer is purpose-built for exploration; do not burden Developer with tasks that produce no code changes.
    
@@ -228,6 +231,8 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    **Ambiguous task routing:**
    | Task | Route To | Reason |
    |------|----------|--------|
+   | Design new landing page / UI mockup / visual spec | Designer | Primary artifact is UI design / prototype / visual spec |
+   | Implement design into React / Vue / HTML | Developer | Primary artifact is application code |
    | Write a Dockerfile | DevOps | Primary artifact is infra config |
    | Fix CI pipeline YAML | DevOps | Primary artifact is infra config |
    | Write deploy script in Python | DevOps | Purpose is deployment, language is incidental |
@@ -237,7 +242,7 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    | Research best library/approach for a problem | Wanderer | Read-only research, no code changes |
    | Architecture decision needed (new persistence layer, new pattern, framework selection, "should we use X or Y?", cross-system change) | Architect | Architecture design BEFORE developer implementation |
 
-   Rule: Route by **primary artifact** — what is the main deliverable? If it's config/infra → DevOps, if it's application code → Developer, if it's a read-only answer/findings → Wanderer.
+   Rule: Route by **primary artifact** — what is the main deliverable? If it's UI design/prototype → Designer, if it's config/infra → DevOps, if it's application code → Developer, if it's a read-only answer/findings → Wanderer.
 
    **Architecture Decision Routing:** Route to Architect BEFORE Developer when the task involves:
    - New persistence layer or data store selection
@@ -259,7 +264,7 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    ├─ Low (trivial fix, config, cosmetic, single-line change)
    │   → Skip code review
    │   → If Tiny scope: Done, report to user
-   │   → If Small+: Continue to step 5 (Tester)
+   │   → If Small+: Continue to step 4c (Visual QA if UI) or step 5 (Tester)
    │
    ├─ Medium (feature, refactor, bug fix with logic)
    │   → Spawn Reviewer: "Review code changes for [goal]"
@@ -280,9 +285,23 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    - Tidier Decision:
      - High issues → Back to Developer with specific fixes → Return to step 3 (Reviewer)
      - Medium issues → Defer unless clearly impacting maintainability
-     - Approved → Continue to step 5
+     - Approved → Continue to step 4c (Visual QA if UI) or step 5 (Tester)
    - If Developer modified logic (not just formatting), invoke Reviewer on changed sections for regression check
    - **Combined loop limit with Reviewer: max 3 total cycles across both phases**
+
+4c. Frontend Visual QA (Designer — CONDITIONAL for UI/frontend tasks) 👁️:
+   ├─ Non-UI task (backend, DB, CLI, infra, API) → Skip Visual QA entirely, proceed to step 5 (Tester)
+   └─ UI / Frontend task (HTML/CSS/JSX/TSX, styling, component, page changes):
+       → Spawn Designer: "Perform Visual QA on the developer's implementation. Plan representative route/state/viewport/theme coverage; capture only necessary screenshots and deliver actual image bytes for vision audits. Batch screenshots in one multimodal local-vision request only if transport and budget support it; explain_image accepts one image per call. Never claim unaudited images were inspected. After initial inventory, inspect changed files/screens only. Record findings in .agents/shared/planning/<feature>/design-findings.md and report deltas. Preserve required coverage/accessibility. Maximum two visual correction cycles, then hand off unresolved issues."
+       → Designer captures screenshot via headless Chrome, runs vision audit against design target, updates `.agents/shared/planning/<feature>/design-findings.md`, and returns Visual QA Verdict:
+           ├─ VERIFIED → Proceed immediately to Step 5 (Tester)
+           ├─ PARTIAL → If remaining items are non-blocking / polish, record in `.agents/shared/planning/<feature>/design-findings.md` and proceed to Step 5 (Tester). If blocking items exist (layout breaks, missing components, accessibility regressions), trigger revision cycle (up to limit).
+           └─ BLOCKED → Trigger developer revision cycle with actionable CSS/component fixes.
+       → Visual Correction Loop (Max 2 cycles):
+           - Leader sends Visual Defect Report with actionable CSS/component fixes back to Developer
+           - Developer applies fixes
+           - Designer re-captures changed screens and verifies
+           - **Cycle 2 escalation:** If blocking defects persist after the 2nd correction cycle, do NOT silently proceed to Tester. Stop the loop, record unresolved defects in `.agents/shared/planning/<feature>/design-findings.md`, and report/escalate to user.
 
 5. Spawn Tester: "Test [feature/goal]. Verify it works correctly."
 6. Wait for test result
@@ -313,10 +332,9 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    - Stop workflow
 ```
 
-### Loop Limit
-**Max 3 total cycles** across all review phases (Reviewer + Tidier combined). After 3 cycles, escalate to user with remaining issues listed.
-
-Rationale: 6 total iterations (3×2 phases) is excessive — signals task is poorly specified or too large.
+### Loop Limits
+- **Code Review + Tidier:** Max 3 total cycles combined across both phases. After 3 cycles, escalate to user with remaining issues listed. (Rationale: 6 total iterations is excessive — signals task is poorly specified or too large).
+- **Visual QA (Designer + Developer):** Max 2 cycles. If blocking defects persist after the 2nd cycle, stop the loop and escalate to user.
 
 ### Complexity Indicators
 
@@ -359,14 +377,14 @@ Rationale: 6 total iterations (3×2 phases) is excessive — signals task is poo
 
 ### Scope × Complexity Interaction
 
-| Scope | Code Review | Tidier | Test | Test Review |
-|-------|-------------|------|------|-------------|
-| **Tiny** | ❌ Skip | ❌ Skip | ❌ Skip | ❌ Skip |
-| **Small + Low complexity** | ❌ Skip | ❌ Skip | ✅ Yes | ❌ Skip |
-| **Small + Medium complexity** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ Skip |
-| **Small + High complexity** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ If test is complex |
-| **Big** | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Leader judges per component |
-| **Huge** | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Leader judges per component |
+| Scope | Code Review | Tidier | Visual QA (UI only) | Test | Test Review |
+|-------|-------------|------|---------------------|------|-------------|
+| **Tiny** | ❌ Skip | ❌ Skip | ❌ Skip | ❌ Skip | ❌ Skip |
+| **Small + Low complexity** | ❌ Skip | ❌ Skip | ✅ Yes (if UI) | ✅ Yes | ❌ Skip |
+| **Small + Medium complexity** | ✅ Yes | ✅ Yes | ✅ Yes (if UI) | ✅ Yes | ❌ Skip |
+| **Small + High complexity** | ✅ Yes | ✅ Yes | ✅ Yes (if UI) | ✅ Yes | ✅ If test is complex |
+| **Big** | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Leader judges per component |
+| **Huge** | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Yes (per component) | ✅ Leader judges per component |
 
 ### Instance Lifecycle — Reuse by Phase
 
@@ -610,6 +628,42 @@ Pipeline (coupled phases):
 
 ---
 
+## Sequential Frontend Feature Example
+
+A typical end-to-end frontend feature lifecycle:
+
+```raw
+User: "Design and implement the new user profile dashboard"
+
+1. LEADER: Scope = SMALL, Workflow = Implementation (with UI design)
+2. GIT FLOW: Spawn giter → create branch 'feature/user-profile-dashboard'
+
+3. STEP 1 — DESIGN (Designer with Vision):
+   - Spawn Designer: "Design the user profile dashboard. Produce HTML/CSS prototype, visually audit it via Chrome+Vision, and provide target screenshot."
+   - Designer completes: delivers prototype + /tmp/profile-target.png + design notes.
+
+4. STEP 2 — IMPLEMENTATION (Developer):
+   - Spawn Developer: "Implement user profile dashboard into React app using design at [prototype path]. Reference target screenshot at /tmp/profile-target.png."
+   - Developer completes implementation and starts dev server / provides build preview.
+
+5. STEP 3 — VISUAL QA (Designer):
+   - Send message to Designer: "Perform Visual QA on http://localhost:3000/profile. Compare against /tmp/profile-target.png."
+   - Designer captures screenshot via headless Chrome, runs vision diff:
+     - Discrepancy: avatar margin is 12px instead of 24px; badge font-weight is 400 instead of 600.
+   - Leader sends fixes to Developer → Developer updates CSS → Designer re-checks → Approved (VERIFIED: no blocking visual defects, layout breaks, or token regressions)!
+
+6. STEP 4 — TESTING (Tester):
+   - Spawn Tester: "Run test suite and verify profile page interactions."
+   - Tests pass!
+
+7. GIT FLOW — FINALIZE:
+   - giter commits changes, merges to latest, and pushes.
+
+8. Leader reports success with visual comparison proof to user!
+```
+
+---
+
 ## Sequential Workflow Example
 
 A user may invoke Planning first, then Implementation in the same session:
@@ -761,12 +815,19 @@ Planning Workflow:
   BIG+:  User → Leader → Planner → Reviewer → Approver → Leader Decision → (loop or done) → User
 
 Implementation Workflow (varies by complexity):
-   Low:    User → Leader → Developer → Tester → Done → User
-   Medium: User → Leader → Developer → Reviewer → Tidier → Tester → Done → User
-   High:   User → Leader → Developer → Reviewer → Tidier → Tester → Reviewer → Done → User
-   Tiny:   User → Leader → Developer → Done → User
+   Low:      User → Leader → Developer → Tester → Done → User
+   Medium:   User → Leader → Developer → Reviewer → Tidier → Tester → Done → User
+   High:     User → Leader → Developer → Reviewer → Tidier → Tester → Reviewer → Done → User
+   UI tasks: User → Leader → Developer → Reviewer (if Med+) → Tidier (if Med+) → Designer (Visual QA) → Tester → Done → User
+   Tiny:     User → Leader → Developer → Done → User
 
 Debug Workflow (investigate BEFORE fix; full evidence handed to every investigator):
    Collect Evidence → Developer+Tester investigate (NO fix) → Leader confirms root cause
        → Developer fixes → Tester reproduces ORIGINAL repro → Done
 ```
+
+**Learned:**
+
+- Vision/design-review delegations can be token-cost hotspots: large context tails and repeated vision invocations drive cost. Watchover refresh does NOT re-fetch images; every 20 checks it reconstructs a text-only raw tail, while guardrail/snapshot messages are sent per tool-call check.
+- `explain_image` accepts ONE image only. Local vision endpoint supports multi-image requests (batch only if transport/budget permit, otherwise bounded batches or per-image calls). Never batch by skipping required checks.
+- Compact shared ledger at `.agents/shared/planning/<feature>/design-findings.md`, changed-only inspection after initial inventory, strict max 2 visual correction cycles before handoff.
