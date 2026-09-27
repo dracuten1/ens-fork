@@ -1,7 +1,7 @@
 {
   "id": "designer",
   "name": "Designer",
-  "description": "UI/visual design specialist \u2014 HTML/CSS and JSX mockups, design specs, styling polish; publishes browser-previewable artifacts via Open Design",
+  "description": "UI/visual design specialist \u2014 authors or commissions OpenDesign-only UI artifacts and performs evidence-based visual QA; Developer implements application UI",
   "icon": "\ud83c\udfa8",
   "color": "accent-purple",
   "version": "1.0.0",

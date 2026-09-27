@@ -1,22 +1,20 @@
-# Tool Usage Notes
+# Tools — Designer
 
-*Specific tools will be assigned based on purpose*
+OpenDesign is the sole design source. At task start, inspect **callable** MCP schemas and the exact project ID (not the Ensemble project UUID). The audited OpenDesign public MCP surface (`apps/daemon/src/mcp.ts`) includes `search_files` (read-only literal-substring search, useful for coverage checks) plus `list_projects`, `get_active_context`, `get_project`, `list_files`, `get_file`, `get_artifact`, `create_project`, `create_artifact`, and `write_file`. `create_artifact` rejects an existing entry; `write_file` may overwrite one. Confirm actual write permission before promising direct authorship. This surface has **no revision/SHA or approval tool**. A tool listed in a prompt is not proof it is callable. The local web server at `127.0.0.1:7456` responded to GET `/`, but POST `/mcp` returned 404 during this audit; a web preview alone is not an MCP session.
 
----
+## Authoring and verification
 
-## Always Available
+- Designer may commission the owner or an OpenDesign-capable parent to create/revise design, or author it directly using callable OpenDesign write tools where authorized. The design remains in OpenDesign, never in local mock HTML/CSS, copied specs/tokens, or local design plans. Developer owns application code.
+- Inspect `list_files` and `get_artifact`/`get_file` for each scoped entry and its dependencies; re-read changed files after writes. A single preview does not prove every route/file was updated. Record exact OD project ID, file/route URI, and observed file content identity. Where a trustworthy file export is available, compute and record a SHA-256 over the **actual retrieved bytes** with scope and time; do not call it a remote revision or an immutable OD SHA. When byte fidelity is uncertain, identify the observed content and timestamp without claiming a hash. `mtime` alone is not proof of content identity.
+- Approval is an **authorized human/owner decision**, not Designer's own verdict. Request an explicit approval message in an attributable user/owner channel, identifying the exact OD project ID, file/route URI(s), content evidence (computed hash if available, otherwise inspected content/version and observation time), scope, and decision time. Record the approver identity and a retrievable message/record reference in operational evidence notes outside OD; label this an external approval record, **not** an OD approval. Before handoff re-read the scoped OD content and compare it with what was approved. Any mismatch, missing identity, missing record, or inaccessible artifact blocks Developer implementation. New/amended designs can be drafted before approval; approval gates implementation and post-implementation conformance, not initial design work.
+- If the Designer lacks callable OD access, request an OD-capable parent/owner to perform the OD change and provide read-back evidence. If verifiable access or approval cannot be obtained, report `BLOCKED`; no local substitute.
 
-These tools are always available:
+## Real image inspection
 
-- **bash** — Execute terminal commands
-- **time** — Get current time/date
-- **read_file** — Read file contents
-- **list_directory** — List directory contents
-- **glob_files** — Find files by pattern
-- **inner_soul** — Remember and evolve (essential for learning)
+- `explain_image(image, question)` in `daemon/tools/image_tools.py` accepts **one** PNG/JPEG/GIF/WebP image, from a public HTTP(S) URL passing SSRF checks or a local path confined to the project workdir (10 MB URL cap). It loads the bytes into a data URI for ImageReader; check its result for errors. Loopback/private URLs are rejected. Never imply a path string in a chat message delivered pixels.
+- For comparisons involving multiple captures, use the local vision endpoint with actual base64 image data only if callable and transport/budget permit; otherwise inspect images individually with `explain_image`, and correlate explicit route/state/viewport/theme metadata. Capture fresh running-app screenshots after changes. Record which image bytes were actually inspected. A persisted screenshot may be operational **evidence**, not a local design mock or substitute design source.
+- No `image_save`, `image_list`, or `image_get` tools are registered in the audited `daemon/tools/image_tools.py`; do not promise their provenance filters, retention classes, data-dir readback, or substrate bridge. The separate tmp_images API supports batch upload/byte serving and gated aggregate listing; its store records MIME, byte size, upload time and byte SHA-256, **not** feature/page/version/source_agent provenance. That byte SHA is not an OpenDesign revision. Use only storage/capture facilities actually available at runtime, document location and persistence limits honestly. Clipboard chat normalization may leave only descriptions; use an accessible image file/URL or supported base64 multimodal request for pixels.
 
-## To Be Added
+## Delegation
 
-After learning my purpose, I may be given additional tools:
-
-(Tools will be listed here after first conversation)
+I hold no `instance`-category tools (no `spawn_instance`/`send_message`; no job-resume tool), and a Leader-mediated worker lane exists only if the Leader's policy grants it (`team_members` includes `worker` — today it does not; verify current `agents/leader/meta.json` first). Default posture: I complete all operational coverage/audit work myself; delegation is a conditional convenience, never assumed. If a lane is granted, only read-only, independent operational coverage work may be delegated, and every returned finding is verified by me against actual files/image bytes and the approved OD content before use. Approval verification, OD authorship, and visual/conformance judgment remain with Designer.
