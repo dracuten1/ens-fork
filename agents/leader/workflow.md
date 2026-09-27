@@ -215,14 +215,10 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
 ```raw
 1. Assess task domain and route to the right specialist:
    ├─ Read-only investigation, codebase question, or library research? (no code changes required) → **Wanderer**
-   ├─ UI design, prototype, mockups, design specs, or visual polish? → **Designer**
    ├─ Application source code, bug fixes, features, tests, scripts → **Developer**
    ├─ Infrastructure, Docker, CI/CD, deployment, Kubernetes, Terraform, environment config → **DevOps**
-   └─ Multi-domain (e.g. Design + Code, or Code + Infra) → **Split**:
-      - Frontend Feature with Design: Designer (creates prototype/target screenshot) → Developer (implements code) → Designer (Visual QA)
-      - Code + Infra: sequential Developer→DevOps for dependent steps, parallel for independent steps (respecting the 3-instance concurrency limit)
-   
-   **For read-only investigation, codebase questions, or library research → delegate to Wanderer instead of Developer.** Wanderer is purpose-built for exploration; do not burden Developer with tasks that produce no code changes.
+   └─ Multi-domain (both code + infrastructure) → **Split**: sequential Developer→DevOps for dependent steps, parallel for independent steps (respecting the 3-instance concurrency limit)
+   **For ordinary read-only codebase investigation or library research → delegate to Wanderer instead of Developer.** Designer retains OD design/conformance verification even when the requested action is read-only; Wanderer cannot satisfy that gate. Wanderer is purpose-built for exploration; do not burden Developer with tasks that produce no code changes.
    
    *If routed to Wanderer (read-only investigation): wait for findings, report to user, and STOP — skip review/test steps (they apply only to code deliverables, not investigation reports).*
    
@@ -231,7 +227,6 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    **Ambiguous task routing:**
    | Task | Route To | Reason |
    |------|----------|--------|
-   | Design new landing page / UI mockup / visual spec | Designer | Primary artifact is UI design / prototype / visual spec |
    | Implement design into React / Vue / HTML | Developer | Primary artifact is application code |
    | Write a Dockerfile | DevOps | Primary artifact is infra config |
    | Fix CI pipeline YAML | DevOps | Primary artifact is infra config |
@@ -242,7 +237,15 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
    | Research best library/approach for a problem | Wanderer | Read-only research, no code changes |
    | Architecture decision needed (new persistence layer, new pattern, framework selection, "should we use X or Y?", cross-system change) | Architect | Architecture design BEFORE developer implementation |
 
-   Rule: Route by **primary artifact** — what is the main deliverable? If it's UI design/prototype → Designer, if it's config/infra → DevOps, if it's application code → Developer, if it's a read-only answer/findings → Wanderer.
+   Rule: Route by **primary artifact** — config/infra → DevOps; application code → Developer; ordinary read-only codebase answer → Wanderer. OpenDesign design/conformance evidence → Designer, even for read-only requests.
+
+   **UI/UX Routing:** For new pages, redesign, navigation, accessibility, design-system changes, or changed design intent, send Designer first to create/revise the OpenDesign artifact using actually callable OD tools or an authorized OD-capable owner/parent. OpenDesign is the sole design source; no local design mock, prototype, copied spec/tokens, or design plan. Initial design creation/revision does NOT require approval. Before Developer implements, require an authorized human/owner's attributable approval record identifying exact OD project ID, file/route URI(s), observed content or service-provided stable revision ID (only if real), approver identity, decision, time, and retrievable record reference; check approver authority under project policy. External approval records are acceptable. Re-read OD content and compare against approved evidence (a SHA-256 only when computed over actual retrieved bytes; not an OD revision). Designer cannot self-approve. No OD access, missing/mismatched content, or unverified approval → BLOCK implementation; an MCP schema, preview, or parent-supplied project URI alone is insufficient. Developer owns real application implementation; Designer owns subsequent conformance QA.
+
+   Brief: `task_id`, `phase` (`new | amend | re-conformance`), scoped pages/files, context/ACs (not copied design), optional operational `plan_ref`, conventions, OD project/artifact reference if existing, and escalation path. On `new`, do not require an already existing artifact; provide the intended project or permission to create it. On re-conformance, pass the approved content identity and approval record. Require coverage matrix (requested page × state × viewport × theme), changed coverage, and fresh running-app screenshot evidence from Developer. The handoff carries OD references, content identity, approval record, and concise validation pointers, not a local design artifact. No revision/approval API or immutable SHA is assumed.
+
+   **Two-channel clipboard reality (UX-fix path):** clipboard-style image refs in messages normalize to **text descriptions** on the chat path — pixels are cleared (mechanism: chat-path pre-dispatch hook and the tmp-image-to-description converter) and only a direct base64 `images=[data_uri]` dispatch reaches vision routing. When upstream pastes a screenshot, I relay the conversion text **inline** plus the substrate ref/path; the designer re-digests via `explain_image` only when the image path is within the project workdir or a URL passes SSRF checks (or via supported actual-byte multimodal delivery); a tmp-image ref is not automatically readable — they do not need to re-fetch the description, it is already in the brief.
+
+   **Designer-driven audit summons (no daemon cron):** I summon the designer at **phase boundaries** (when a planned phase closes) and on the **pre-release sweep** (before a merge to `latest`). The other two triggers (tester visual-drift failure, on request) ride the conformance loop and direct-request lanes respectively.
 
    **Architecture Decision Routing:** Route to Architect BEFORE Developer when the task involves:
    - New persistence layer or data store selection
@@ -262,9 +265,11 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
 
 3. Leader assesses CODE complexity:
    ├─ Low (trivial fix, config, cosmetic, single-line change)
+   │   → A truly trivial cosmetic-only edit may skip a **new** design revision and Designer cycle only when the active approved OD baseline is verified unchanged and design intent, layout, tokens and accessibility remain unchanged. Leader must record explicit conformance evidence for the changed UI against that baseline; if unable to establish this, route through Designer's gate. Never bypass design conformance because scope is Tiny.
+
    │   → Skip code review
-   │   → If Tiny scope: Done, report to user
-   │   → If Small+: Continue to step 4c (Visual QA if UI) or step 5 (Tester)
+   │   → If Tiny non-UI scope: Done, report to user. Tiny UI needs the conformance evidence above or Designer gate before Done.
+   │   → If Small+: If UI/UX task, continue to step 4c (Visual QA); otherwise continue to step 5 (Tester)
    │
    ├─ Medium (feature, refactor, bug fix with logic)
    │   → Spawn Reviewer: "Review code changes for [goal]"
@@ -292,8 +297,10 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
 4c. Frontend Visual QA (Designer — CONDITIONAL for UI/frontend tasks) 👁️:
    ├─ Non-UI task (backend, DB, CLI, infra, API) → Skip Visual QA entirely, proceed to step 5 (Tester)
    └─ UI / Frontend task (HTML/CSS/JSX/TSX, styling, component, page changes):
-       → Spawn Designer: "Perform Visual QA on the developer's implementation. Plan representative route/state/viewport/theme coverage; capture only necessary screenshots and deliver actual image bytes for vision audits. Batch screenshots in one multimodal local-vision request only if transport and budget support it; explain_image accepts one image per call. Never claim unaudited images were inspected. After initial inventory, inspect changed files/screens only. Record findings in .agents/shared/planning/<feature>/design-findings.md and report deltas. Preserve required coverage/accessibility. Maximum two visual correction cycles, then hand off unresolved issues."
-       → Designer captures screenshot via headless Chrome, runs vision audit against design target, updates `.agents/shared/planning/<feature>/design-findings.md`, and returns Visual QA Verdict:
+       → OpenDesign is the sole design source. Verify approved content identity and attributable authorized human/owner approval before QA; re-read changed OD files. If no verifiable source/approval evidence, BLOCK, never fall back to local design. Tiny UI with documented unchanged approved baseline and concrete conformance evidence may omit a new Designer cycle; otherwise invoke Designer.
+       → Spawn Designer: "Perform Visual QA against the approved OpenDesign project/file/route and content identity [evidence + approval record]. Running app [url]. Check requested page/state/viewport/theme matrix with fresh screenshots; send actual image bytes to vision. explain_image accepts one image per call. Record inspected evidence and changed-only deltas in design-findings.md; preserve accessibility. At most two correction cycles."
+
+       → Designer captures screenshot via headless Chrome, runs vision audit against the approved OpenDesign artifact/content, updates `.agents/shared/planning/<feature>/design-findings.md`, and returns Visual QA Verdict:
            ├─ VERIFIED → Proceed immediately to Step 5 (Tester)
            ├─ PARTIAL → If remaining items are non-blocking / polish, record in `.agents/shared/planning/<feature>/design-findings.md` and proceed to Step 5 (Tester). If blocking items exist (layout breaks, missing components, accessibility regressions), trigger revision cycle (up to limit).
            └─ BLOCKED → Trigger developer revision cycle with actionable CSS/component fixes.
@@ -379,7 +386,7 @@ Fan-out >=2 committing editors: pre-write wt.active.<branch>.<task-id> rows -> s
 
 | Scope | Code Review | Tidier | Visual QA (UI only) | Test | Test Review |
 |-------|-------------|------|---------------------|------|-------------|
-| **Tiny** | ❌ Skip | ❌ Skip | ❌ Skip | ❌ Skip | ❌ Skip |
+| **Tiny** | ❌ Skip | ❌ Skip | ✅ Conformance evidence or Designer gate if UI | ❌ Skip | ❌ Skip |
 | **Small + Low complexity** | ❌ Skip | ❌ Skip | ✅ Yes (if UI) | ✅ Yes | ❌ Skip |
 | **Small + Medium complexity** | ✅ Yes | ✅ Yes | ✅ Yes (if UI) | ✅ Yes | ❌ Skip |
 | **Small + High complexity** | ✅ Yes | ✅ Yes | ✅ Yes (if UI) | ✅ Yes | ✅ If test is complex |
@@ -479,6 +486,7 @@ PHASE 1.5 — CLASSIFY DOMAIN
    ├─ Code cause (logic error, app crash, dependency bug, startup failure) → Investigators: Developer + Tester
    ├─ Infra cause (config drift, pod crash, CI runner config, terraform state) → Investigators: DevOps + Tester
    ├─ Architectural cause (cross-system boundaries, suspicious coupling, unclear component ownership, failure path spans 3+ subsystems) → Add Architect as investigator: "Map the architecture around the failure path. Identify architectural boundaries, coupling issues, and component ownership gaps that may contribute to this bug. DIAGNOSIS ONLY, NO FIX."
+   ├─ UI/UX cause (visual regression, broken interaction, a11y violation, design-system drift, navigation/state confusion, layout/typography defect, screenshot-evidence mismatch) → Add Designer as investigator: "Investigate the UI/UX path. Read the relevant Angular components / templates / tokens, locate the visual or interaction defect against the active approved OpenDesign artifact/content (cite the content identity and approval record), and report root cause + the design deviation. DIAGNOSIS ONLY, NO FIX — Developer implements." Relay any screenshot evidence via the two-channel clipboard reality (descriptions on the chat path, substrate ref/path + direct base64 for pixels).
    └─ Cause unclear from evidence → Investigators: Developer + DevOps + Tester (parallel, respecting the 3-instance concurrency limit)
    
    Each investigator still receives the FULL Problem Brief.
@@ -625,42 +633,6 @@ Pipeline (coupled phases):
 - **Contained fix** (unrelated to dependent's work) → Let dependent continue, apply fix as follow-up
 - **Architectural change** (affects dependent's code) → Abort dependent, apply corrections, restart with updated context
 - **When unsure → abort dependent.** Wasted work is cheaper than broken work.
-
----
-
-## Sequential Frontend Feature Example
-
-A typical end-to-end frontend feature lifecycle:
-
-```raw
-User: "Design and implement the new user profile dashboard"
-
-1. LEADER: Scope = SMALL, Workflow = Implementation (with UI design)
-2. GIT FLOW: Spawn giter → create branch 'feature/user-profile-dashboard'
-
-3. STEP 1 — DESIGN (Designer with Vision):
-   - Spawn Designer: "Design the user profile dashboard. Produce HTML/CSS prototype, visually audit it via Chrome+Vision, and provide target screenshot."
-   - Designer completes: delivers prototype + /tmp/profile-target.png + design notes.
-
-4. STEP 2 — IMPLEMENTATION (Developer):
-   - Spawn Developer: "Implement user profile dashboard into React app using design at [prototype path]. Reference target screenshot at /tmp/profile-target.png."
-   - Developer completes implementation and starts dev server / provides build preview.
-
-5. STEP 3 — VISUAL QA (Designer):
-   - Send message to Designer: "Perform Visual QA on http://localhost:3000/profile. Compare against /tmp/profile-target.png."
-   - Designer captures screenshot via headless Chrome, runs vision diff:
-     - Discrepancy: avatar margin is 12px instead of 24px; badge font-weight is 400 instead of 600.
-   - Leader sends fixes to Developer → Developer updates CSS → Designer re-checks → Approved (VERIFIED: no blocking visual defects, layout breaks, or token regressions)!
-
-6. STEP 4 — TESTING (Tester):
-   - Spawn Tester: "Run test suite and verify profile page interactions."
-   - Tests pass!
-
-7. GIT FLOW — FINALIZE:
-   - giter commits changes, merges to latest, and pushes.
-
-8. Leader reports success with visual comparison proof to user!
-```
 
 ---
 
@@ -818,8 +790,9 @@ Implementation Workflow (varies by complexity):
    Low:      User → Leader → Developer → Tester → Done → User
    Medium:   User → Leader → Developer → Reviewer → Tidier → Tester → Done → User
    High:     User → Leader → Developer → Reviewer → Tidier → Tester → Reviewer → Done → User
-   UI tasks: User → Leader → Developer → Reviewer (if Med+) → Tidier (if Med+) → Designer (Visual QA) → Tester → Done → User
-   Tiny:     User → Leader → Developer → Done → User
+   UI tasks: User → Leader → Designer (create/revise OD design → authorized approval of identified content before implementation) → Developer → Reviewer (if Med+) → Tidier (if Med+) → Designer (Visual QA) → Tester → Done → User
+   Tiny non-UI: User → Leader → Developer → Done → User
+   Tiny UI: User → Leader → verified approved OD baseline → Developer → concrete conformance evidence (or Designer gate) → Done
 
 Debug Workflow (investigate BEFORE fix; full evidence handed to every investigator):
    Collect Evidence → Developer+Tester investigate (NO fix) → Leader confirms root cause

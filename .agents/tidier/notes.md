@@ -1,5 +1,15 @@
 # Tidier Review Notes — agents-ensemble
 
+## 2026-09-27 — opendesign-only-design craftsmanship pass (worktree feature/opendesign-only-design), Iteration 001
+- Dispatch: 2 parallel read-only workers (readable d033436e, hygiene 60aa3730), 5 files in worktree `/Users/tuyennguyen/project/ensemble-wt-feature-opendesign-only-design`. Both workers reported fully; fan-in completed cleanly.
+- Reviewer Suggestions Addressed & Applied:
+  1. Clarified "spec work" phrasing in `agents/designer/rule.md:22` to explicitly emphasize OpenDesign review, revision proposals, and coverage mapping (avoiding legacy local spec phrasing).
+  2. Clarified `version` provenance tag in `agents/designer/tools_note.md:26,71,111` as the verified OpenDesign `pinned_spec_sha` (remote immutable revision digest), explicitly prohibiting local git SHAs or arbitrary branch names.
+  3. Structured and clarified explicit image retention categories (`protected` durable baselines vs `normal` ephemeral work) in `agents/designer/tools_note.md:28-31,46,113`, removing obsolete references to local spec thumbnails.
+  4. Added explicit conditional Visual QA step (Step 4c) in `agents/leader/workflow.md:295` Phase 2 overview and updated steps 3 and 4b to route UI/UX tasks to step 4c before handoff to Tester step 5.
+- Formatting & Hygiene: Removed redundant consecutive blank line in `agents/designer/rule.md:40`.
+- Verdict: PASS with polish applied — all reviewer suggestions addressed without breaking changes, confined strictly to worktree.
+
 ## 2026-09-26 — agent-snapshot-v1 post-review quality pass (worktree feature/agent-snapshot-v1 @ 02aba33e, range db71500a..HEAD), Iteration 001
 - Dispatch: 3 parallel read-only workers (readable 85887648, hygiene 8dde866a, robust 5bf604e1), 58 files +13644/−248. All 3 reported fully; fixes routed to Developer (Cardinal #5) despite commission asking Tidier to edit+commit+run-pack — 3rd occurrence of this pattern (2026-09-15/16 precedents).
 - Verdict: NEEDS WORK (non-blocking, all mechanical/doc-level) — 0 High / 13 Medium / 8 Low after adjudication.
@@ -457,3 +467,4 @@ Diff f2611f07..HEAD, 5 FE files (+487/−10). 0 High / 4 Medium / 8 Low.
 - Deferred to Reviewer: task_processor.py:231-237 carve-out branch calls notify_work_watchers WITHOUT result_summary= (pre-C2 shape survives next to the fixed :293 site); job_queue.py:2252 fallback message fires only for 'completed' while needs_result gate includes 'settled'; work_notifier.py:486-491 getattr(_instance_repository) fail-OPEN vs repo fail-closed convention; broad except Exception at task_processor.py:266-282 (error-handling shape but fix=behavior change); {"completed","settled"} literal sync risk child_reports.py:4400; user-facing replies leak internal "C1 HOLD semantics" vocabulary (job_queue.py:2416-2419, 2701-2708).
 - Pre-existing ledger (separate commission): child_reports.py 5027 lines, job_queue.py 4144 lines (>3000 refactor flag); missing __all__ on task_processor.py/child_reports.py vs 2 sibling sites.
 - Process nit (recurring, 4th consecutive pass): neither worker's report text evidenced the skill_feedback tool-call-first step; reports otherwise complete and evidence-rich (AST Name-load scans, conftest greps, cross-file verification).
+- Supersession note (2026-09-27): iteration-001 `pinned_spec_sha`/immutable-SHA and `image_save`/substrate claims are superseded by the opendesign-only-design final pass (conditional revision ID, byte-hash-only-when-computed, tmp_images byte store; no provenance sidecars).
