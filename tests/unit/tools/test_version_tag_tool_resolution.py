@@ -1042,13 +1042,13 @@ class TestClosureLevelSpawnInstanceUsesVersionedMeta:
         )
 
         # Manager wired per tests/test_spawn_team_members.py so the
-        # spawn_instance closure reaches manager.spawn_instance(...).
+        # spawn_instance closure reaches manager.spawn_instance_with_mcp(...).
         manager = MagicMock()
         manager._lifecycle_service = MagicMock()
         manager._lifecycle_service._format_model_fallback_notice = (
             MagicMock(return_value="")
         )
-        manager.spawn_instance = MagicMock(
+        manager.spawn_instance_with_mcp = AsyncMock(
             return_value=("new-instance-id-12345", None)
         )
         manager._instance_repository = MagicMock()
@@ -1133,8 +1133,8 @@ class TestClosureLevelSpawnInstanceUsesVersionedMeta:
             f"Success result must include the spawned instance_id; "
             f"got: {result_ok!r}"
         )
-        manager.spawn_instance.assert_called_once()
-        first_kwargs = manager.spawn_instance.call_args.kwargs
+        manager.spawn_instance_with_mcp.assert_called_once()
+        first_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert first_kwargs["agent_id"] == "coder"
 
         assert isinstance(result_denied, str)
@@ -1146,9 +1146,9 @@ class TestClosureLevelSpawnInstanceUsesVersionedMeta:
             f"Closure must surface the team_members denial; "
             f"got: {result_denied!r}"
         )
-        # CRITICAL: no additional manager.spawn_instance call — the
+        # CRITICAL: no additional manager.spawn_instance_with_mcp call — the
         # auth gate runs BEFORE the manager dispatch.
-        manager.spawn_instance.assert_called_once()
+        manager.spawn_instance_with_mcp.assert_called_once()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

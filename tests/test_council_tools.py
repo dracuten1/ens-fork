@@ -104,6 +104,7 @@ def _make_manager(
     manager._lifecycle_service._resolve_model_override = MagicMock(side_effect=_resolve)
 
     manager.spawn_instance = MagicMock(return_value=spawn_result)
+    manager.spawn_instance_with_mcp = AsyncMock(return_value=spawn_result[0])
     return manager
 
 
@@ -421,9 +422,9 @@ class TestSpawnCouncilor:
         assert "Successfully spawned councilor instance" in result
         assert "developer" in result
         assert "gpt-4o" in result
-        # manager.spawn_instance must have been called exactly once.
-        manager.spawn_instance.assert_called_once()
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        # manager.spawn_instance_with_mcp must have been called exactly once.
+        manager.spawn_instance_with_mcp.assert_called_once()
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         # W6: canonical_model passed (not the raw caller's spelling). Since
         # the caller already used the canonical form 'gpt-4o', this is a
         # direct pass-through.
@@ -458,9 +459,9 @@ class TestSpawnCouncilor:
         assert "gpt-4o" in result, (
             f"Result should include the canonical 'gpt-4o'; got: {result!r}"
         )
-        # W6: manager.spawn_instance received the canonical model, NOT the raw.
-        manager.spawn_instance.assert_called_once()
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        # W6: manager.spawn_instance_with_mcp received the canonical model, NOT the raw.
+        manager.spawn_instance_with_mcp.assert_called_once()
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs["model"] == "gpt-4o", (
             f"W6: manager.spawn_instance should receive canonical 'gpt-4o'; "
             f"got: {call_kwargs['model']!r}"

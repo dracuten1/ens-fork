@@ -205,6 +205,9 @@ def _make_manager(*, allowed_models: list[str]):
     manager.spawn_instance = MagicMock(
         return_value=("gov-id", None),
     )
+    manager.spawn_instance_with_mcp = AsyncMock(
+        return_value="gov-id",
+    )
     return manager
 
 
@@ -723,7 +726,7 @@ class TestSpawnCouncilorGovernorBlocked:
         # Make spawn_instance raise the same recursion-guard ValueError
         # the real lifecycle path would produce, so the tool layer
         # surfaces it verbatim.
-        manager.spawn_instance = MagicMock(
+        manager.spawn_instance_with_mcp = AsyncMock(
             side_effect=ValueError(
                 "Spawn refused: parent chain already contains 1 governor "
                 "ancestor(s) (limit 1). Chain: governor gov-child ← leader "

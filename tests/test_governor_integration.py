@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -124,6 +124,11 @@ def _make_manager(
     manager._lifecycle_service._resolve_model_override = MagicMock(side_effect=_resolve)
 
     manager.spawn_instance = MagicMock(return_value=spawn_result)
+    manager.spawn_instance_with_mcp = AsyncMock(
+        side_effect=lambda *args, return_validated_model=False, **kwargs: (
+            spawn_result if return_validated_model else spawn_result[0]
+        )
+    )
     return manager
 
 
@@ -560,7 +565,7 @@ class TestModelCanonicalization:
             f"Error must state 'no fallback'; got: {excinfo.value}"
         )
         # CRITICAL: spawn_instance must NOT have been called on the error path.
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_invalid_councilor_agent_raises(self):
         """C4: unknown councilor_agent_id raises ValueError."""
@@ -573,7 +578,7 @@ class TestModelCanonicalization:
                 model="gpt-4o",
                 initial_message="test",
             )
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_non_team_member_councilor_raises(self):
         """C3: agent not in governor.team_members raises ValueError.
@@ -598,7 +603,7 @@ class TestModelCanonicalization:
             f"Error should reference team membership / allowed members; "
             f"got: {excinfo.value}"
         )
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_empty_model_raises(self):
         """Empty model string is rejected by the strict validation in spawn_councilor.
@@ -941,15 +946,20 @@ class TestNonGovernorFiltering:
         # excluding (a) ``scan_tools_for_full_docs`` so tools are registered
         # into ``_tool_metadata`` and the filter can resolve categories, and
         # (b) ``_apply_tool_filter`` so the genuine filter runs.
+        def _mock_tool(name: str) -> MagicMock:
+            m = MagicMock()
+            m.name = name
+            return m
+
         patches = [
             patch("daemon.tools.instance.is_rag_enabled", return_value=False),
             patch("daemon.tools.instance.create_rag_tools", return_value=[]),
             patch("daemon.tools.instance.create_knowledge_tools", return_value=[]),
-            patch("daemon.tools.instance.create_inner_soul_tool", return_value=MagicMock()),
-            patch("daemon.tools.instance.create_access_memory_tool", return_value=MagicMock()),
+            patch("daemon.tools.instance.create_inner_soul_tool", return_value=_mock_tool("inner_soul")),
+            patch("daemon.tools.instance.create_access_memory_tool", return_value=_mock_tool("access_memory")),
             patch("daemon.tools.instance.create_project_tools", return_value=[]),
             patch("daemon.tools.instance.create_job_tools_if_available", return_value=[]),
-            patch("daemon.tools.instance.create_help_tool", return_value=MagicMock()),
+            patch("daemon.tools.instance.create_help_tool", return_value=_mock_tool("tool_help")),
             patch("daemon.tools.instance.create_critical_notes_tools", return_value=[]),
             patch("daemon.tools.instance.create_project_history_tools", return_value=[]),
             patch("daemon.tools.instance.create_opencode_tools", return_value=[]),

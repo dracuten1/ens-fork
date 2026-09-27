@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 from daemon.services.timestamps import now_utc_naive
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 from langgraph.graph.state import CompiledStateGraph
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
@@ -7121,7 +7121,36 @@ class InstanceManager:
                 version_tag=version_tag,
             )
         except Exception as e:
+            # Degraded-success contract: MCP preload errors (e.g. unreachable
+            # servers, timeouts, schema parse issues) are logged as warnings and
+            # suppressed so instance creation/restoration proceeds. The instance
+            # runs with degraded capabilities (empty or partial MCP tools)
+            # rather than failing to boot entirely.
             logger.warning(f"MCP preload failed for {instance_id[:8]}: {e}")
+
+    @overload
+    async def spawn_instance_with_mcp(
+        self,
+        *,
+        instance_id: str,
+        version_tag: str | None = None,
+        agent_id: str | None = None,
+        return_validated_model: Literal[True],
+        **kwargs,
+    ) -> tuple[str, str | None]:
+        ...
+
+    @overload
+    async def spawn_instance_with_mcp(
+        self,
+        *,
+        instance_id: str,
+        version_tag: str | None = None,
+        agent_id: str | None = None,
+        return_validated_model: Literal[False] = False,
+        **kwargs,
+    ) -> str:
+        ...
 
     async def spawn_instance_with_mcp(
         self,
@@ -7129,33 +7158,38 @@ class InstanceManager:
         instance_id: str,
         version_tag: str | None = None,
         agent_id: str | None = None,
+        return_validated_model: bool = False,
         **kwargs,
-    ) -> str:
+    ) -> str | tuple[str, str | None]:
         """Async spawn with MCP preload and cleanup on failure.
 
-        1. Preloads MCP tools
+        1. Preloads MCP tools (honoring degraded-success on preload exceptions)
         2. Calls sync spawn_instance()
-        3. On spawn failure, cleans up MCP connections
+        3. On sync spawn failure, cleans up MCP connections and re-raises
+
+        Degraded-success contract:
+            Exceptions during MCP preload (handled inside ``ensure_mcp_preloaded``)
+            are logged and suppressed — the spawn continues with degraded MCP
+            capabilities. However, if the subsequent synchronous ``spawn_instance()``
+            fails (e.g. max children exceeded, unknown agent), this wrapper ensures
+            any open MCP connections for the pre-generated ID are cleaned up before
+            re-raising the exception.
 
         Args:
             instance_id: The pre-generated instance ID.
             version_tag: Optional agent version tag. ``None`` selects the base agent.
-            agent_id: Optional base agent identifier. When provided it
-                is forwarded to ``ensure_mcp_preloaded`` so the
-                ``mcp_full_access`` opt-out is honored BEFORE the
-                instance row exists in the DB. Keyword-only binding
-                means ``agent_id`` always lands on this param — it
-                never actually arrives inside ``**kwargs``; the
-                in-code kwargs fallback is a defensive no-op.
+            agent_id: Agent identifier. Resolved against the registry before
+                preload (including the lifecycle's base-version fallback) so
+                MCP policy matches the version bound in the graph.
+            return_validated_model: When True, return the lifecycle's validated
+                model override alongside the ID for tool fallback notices.
             **kwargs: Passed to spawn_instance(). Existing call sites
                 pass ``agent_id`` here as a kwarg — both forms are
                 honored.
 
         Returns:
-            The instance_id.
-
-        Raises:
-            Whatever spawn_instance() raises.
+            The instance_id (or ``(instance_id, validated_model_override)``
+            when return_validated_model is True).
         """
         # ``agent_id`` may arrive via the explicit param OR via
         # ``**kwargs`` (legacy callers like job_processor.py pass it
@@ -7166,24 +7200,39 @@ class InstanceManager:
         # ``spawn_instance`` call below to preserve the legacy
         # behavior every existing caller depends on.
         effective_agent_id = agent_id if agent_id is not None else kwargs.get("agent_id")
-        await self.ensure_mcp_preloaded(
-            instance_id,
-            agent_id=effective_agent_id,
-            version_tag=version_tag,
-        )
-
+        # Match lifecycle's version fallback before graph construction. Keep
+        # this inside the cleanup guard: registry errors must not leave an
+        # instance-scoped MCP cache behind.
         try:
-            # Unpack the (instance_id, validated_model_override) tuple —
-            # we only propagate the instance_id here. The validated override
-            # is consumed by callers that need a fallback notice (the
-            # ``spawn_instance`` tool layer); the wrapper contract remains
-            # ``-> str`` for downstream HTTP / API consumers.
-            instance_id, _validated_model_override = self.spawn_instance(
+            registry = get_registry()
+            resolved_agent_id = (
+                registry.resolve_to_id(effective_agent_id) or effective_agent_id
+            )
+            if version_tag is None and resolved_agent_id is not None:
+                metadata = registry.get_version(resolved_agent_id, None)
+                if metadata is None:
+                    metadata = registry.get_resolved(resolved_agent_id)
+                preload_version_tag = getattr(metadata, "version_tag", None)
+            else:
+                preload_version_tag = version_tag
+            await self.ensure_mcp_preloaded(
+                instance_id,
+                agent_id=resolved_agent_id,
+                version_tag=preload_version_tag,
+            )
+
+            # Unpack the (instance_id, validated_model_override) tuple.
+            # The validated override is consumed by callers that request it
+            # (the ``spawn_instance`` tool layer); legacy callers still get
+            # only the instance ID.
+            instance_id, validated_model_override = self.spawn_instance(
                 instance_id=instance_id,
                 version_tag=version_tag,
                 agent_id=effective_agent_id,
                 **kwargs,
             )
+            if return_validated_model:
+                return instance_id, validated_model_override
             return instance_id
         except Exception:
             # Clean up MCP connections on spawn failure

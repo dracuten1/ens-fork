@@ -21,6 +21,7 @@ not done here.
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal
@@ -2227,14 +2228,18 @@ def create_instance_tools(manager: "InstanceManager", current_instance_id: str, 
                 manager._project_repository, agent_id, registry
             )
 
-            new_instance_id, validated_model_override = manager.spawn_instance(
+            # The graph binds tools during spawn_instance; preload against the
+            # pre-generated ID first. The wrapper cleans up MCP connections if
+            # the subsequent synchronous spawn fails.
+            new_instance_id, validated_model_override = await manager.spawn_instance_with_mcp(
                 agent_id=agent_id,
-                instance_id=None,
+                instance_id=str(uuid.uuid4()),
                 parent_id=current_instance_id,
                 project_id=project_id,
                 instance_name=instance_name,
                 model=effective_model,
                 version_tag=version_tag,
+                return_validated_model=True,
             )
             # Surface a silent-fallback notice (Fix 2 / security review):
             # if the caller supplied a model that's not in
@@ -2242,8 +2247,8 @@ def create_instance_tools(manager: "InstanceManager", current_instance_id: str, 
             # fell back to the default model. The calling agent needs to
             # know its requested model was rejected (cost, latency, and
             # capability differ across models). We use the SAME validated
-            # value returned by ``spawn_instance`` (no second
-            # ``_resolve_model_override`` call) — closes the TOCTOU window
+            # value returned by the MCP spawn wrapper from that same lifecycle
+            # call (no second ``_resolve_model_override`` call) — closes the TOCTOU window
             # where a mid-flight ``allowed_models`` mutation could yield
             # a different notice than the model actually applied. The
             # notice is ``None`` when no caller model was supplied, or
@@ -2460,9 +2465,9 @@ def create_instance_tools(manager: "InstanceManager", current_instance_id: str, 
         # visible in the same project-scoped instance list.
         councilor_project_id = _get_instance_project_id(manager, current_instance_id)
         try:
-            new_instance_id, _returned_model = manager.spawn_instance(
+            new_instance_id = await manager.spawn_instance_with_mcp(
                 agent_id=resolved_agent_id,
-                instance_id=None,
+                instance_id=str(uuid.uuid4()),
                 parent_id=current_instance_id,
                 project_id=councilor_project_id,
                 instance_name=instance_name,

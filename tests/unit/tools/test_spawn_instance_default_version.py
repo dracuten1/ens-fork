@@ -5,7 +5,7 @@ Covers:
   real ``SQLModelProjectRepository`` bound to an in-memory SQLite
   engine — works on both SQLite and PostgreSQL).
 - The ``spawn_instance`` tool's tool-body integration: verifies the
-  resolved tag is forwarded to ``manager.spawn_instance(version_tag=...)``.
+  resolved tag is forwarded to ``manager.spawn_instance_with_mcp(version_tag=...)``.
 
 The default-version feature is a single global scope stored under
 ``SYSTEM_DEFAULT_PROJECT_ID``; the helper mirrors the read pattern in
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.pool import StaticPool
@@ -288,7 +288,7 @@ class TestResolveDefaultVersionTag:
 
 
 class TestSpawnInstanceForwardsTag:
-    """Spy test: assert ``manager.spawn_instance`` receives the resolved tag.
+    """Spy test: assert ``manager.spawn_instance_with_mcp`` receives the resolved tag.
 
     Builds a real ``create_instance_tools(...)`` closure (so the actual
     tool body runs), but stubs the downstream manager + auth path so
@@ -300,7 +300,7 @@ class TestSpawnInstanceForwardsTag:
         self, repo, engine, system_default_project_id
     ):
         """Seed default {"developer": "v2"} → spawn_instance calls
-        ``manager.spawn_instance(..., version_tag="v2")``.
+        ``manager.spawn_instance_with_mcp(..., version_tag="v2")``.
         """
         _create_project_row(engine, system_default_project_id)
         _seed_default_versions(repo, system_default_project_id, {"developer": "v2"})
@@ -314,7 +314,7 @@ class TestSpawnInstanceForwardsTag:
         # lookup return None so the tool falls through to the system
         # default project via ``normalize_project_id(None)``.
         manager._instance_repository.get.return_value = None
-        manager.spawn_instance = MagicMock(
+        manager.spawn_instance_with_mcp = AsyncMock(
             return_value=("new-instance-id", None)
         )
         manager._lifecycle_service._format_model_fallback_notice = MagicMock(
@@ -353,13 +353,16 @@ class TestSpawnInstanceForwardsTag:
                     agent_id="developer", project_id=None
                 )
 
-        # Assert manager.spawn_instance was called with version_tag="v2"
-        assert manager.spawn_instance.called, (
-            f"manager.spawn_instance was not invoked (result={result!r})"
+        # Assert manager.spawn_instance_with_mcp was called with version_tag="v2"
+        assert manager.spawn_instance_with_mcp.called, (
+            f"manager.spawn_instance_with_mcp was not invoked (result={result!r})"
         )
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs.get("version_tag") == "v2"
         assert call_kwargs.get("agent_id") == "developer"
+        assert call_kwargs.get("return_validated_model") is True
+        import uuid
+        assert str(uuid.UUID(call_kwargs["instance_id"])) == call_kwargs["instance_id"]
         # Sanity: the tool returned the spawned instance id.
         assert "new-instance-id" in result
 
@@ -367,7 +370,7 @@ class TestSpawnInstanceForwardsTag:
     async def test_manager_receives_none_when_no_default(
         self, repo, engine, system_default_project_id
     ):
-        """No default seeded → manager.spawn_instance receives version_tag=None.
+        """No default seeded → manager.spawn_instance_with_mcp receives version_tag=None.
 
         Confirms the "no default configured" branch falls through to
         the base version (the lifecycle service handles the
@@ -380,7 +383,7 @@ class TestSpawnInstanceForwardsTag:
         manager = MagicMock()
         manager._project_repository = repo
         manager._instance_repository.get.return_value = None
-        manager.spawn_instance = MagicMock(
+        manager.spawn_instance_with_mcp = AsyncMock(
             return_value=("new-instance-id", None)
         )
         manager._lifecycle_service._format_model_fallback_notice = MagicMock(
@@ -404,5 +407,5 @@ class TestSpawnInstanceForwardsTag:
             with patch("daemon.registry.get_registry", return_value=MagicMock()):
                 await spawn_tool.coroutine(agent_id="developer", project_id=None)
 
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs.get("version_tag") is None

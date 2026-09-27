@@ -13,8 +13,8 @@ Covers:
    field (contract-level invariant).
 2. The ``spawn_councilor`` tool body resolves the default via
    ``_resolve_default_version_tag`` (spy assertion).
-3. The resolved tag is forwarded to ``manager.spawn_instance(..., version_tag=...)``.
-4. No-default path: ``manager.spawn_instance`` receives ``version_tag=None``
+3. The resolved tag is forwarded to ``manager.spawn_instance_with_mcp(..., version_tag=...)``.
+4. No-default path: ``manager.spawn_instance_with_mcp`` receives ``version_tag=None``
    (lifecycle handles the base fallback).
 
 Mirrors the assertion pattern from
@@ -146,8 +146,7 @@ def _make_council_manager(
       * ``config.llm.allowed_models`` — list of allowed models.
       * ``_lifecycle_service._resolve_model_override`` — case-insensitive match.
       * ``_project_repository`` — the real (or mock) project repo.
-      * ``spawn_instance`` — sync MagicMock returning
-        ``(instance_id, validated_model_override)``.
+      * ``spawn_instance_with_mcp`` — async mock returning the instance ID.
       * ``enqueue_message`` — AsyncMock (used by convene_council; harmless here).
     """
     if allowed_models is None:
@@ -172,7 +171,7 @@ def _make_council_manager(
 
     manager._lifecycle_service = MagicMock()
     manager._lifecycle_service._resolve_model_override = MagicMock(side_effect=_resolve)
-    manager.spawn_instance = MagicMock(return_value=spawn_result)
+    manager.spawn_instance_with_mcp = AsyncMock(return_value=spawn_result[0])
     manager.enqueue_message = AsyncMock()
     manager._project_repository = (
         project_repository if project_repository is not None else MagicMock()
@@ -275,13 +274,13 @@ class TestSpawnCouncilorInputSchema:
 
 class TestSpawnCouncilorResolvesDefaultVersion:
     """End-to-end: tool body calls ``_resolve_default_version_tag`` and
-    forwards the resolved value to ``manager.spawn_instance``."""
+    forwards the resolved value to ``manager.spawn_instance_with_mcp``."""
 
     @pytest.mark.asyncio
     async def test_default_configured_forwards_resolved_tag(
         self, repo, engine, system_default_project_id
     ):
-        """Default ``{"developer": "v2"}`` → manager.spawn_instance receives
+        """Default ``{"developer": "v2"}`` → manager.spawn_instance_with_mcp receives
         ``version_tag="v2"`` and the helper was called."""
         _create_project_row(engine, system_default_project_id)
         _seed_default_versions(repo, system_default_project_id, {"developer": "v2"})
@@ -329,16 +328,19 @@ class TestSpawnCouncilorResolvesDefaultVersion:
             f"helper should resolve for 'developer'; got {forwarded_agent_id!r}"
         )
 
-        # Assert manager.spawn_instance was called with version_tag="v2".
-        assert manager.spawn_instance.called, (
-            f"manager.spawn_instance was not invoked (result={result!r})"
+        # Assert manager.spawn_instance_with_mcp was called with version_tag="v2".
+        assert manager.spawn_instance_with_mcp.called, (
+            f"manager.spawn_instance_with_mcp was not invoked (result={result!r})"
         )
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs.get("version_tag") == "v2", (
-            f"W3: manager.spawn_instance must receive the resolved default "
+            f"W3: manager.spawn_instance_with_mcp must receive the resolved default "
             f"version_tag='v2'; got: {call_kwargs.get('version_tag')!r}"
         )
         assert call_kwargs.get("agent_id") == "developer"
+        import uuid
+        assert str(uuid.UUID(call_kwargs["instance_id"])) == call_kwargs["instance_id"]
+        assert call_kwargs.get("return_validated_model") is None
         assert call_kwargs.get("model") == "gpt-4o"
         # Sanity: tool returned the spawned instance id.
         assert "new-councilor-instance-id" in result
@@ -370,10 +372,10 @@ class TestSpawnCouncilorResolvesDefaultVersion:
                     initial_message="please help",
                 )
 
-        # Assert manager.spawn_instance was called with version_tag=None.
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        # Assert manager.spawn_instance_with_mcp was called with version_tag=None.
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs.get("version_tag") is None, (
-            "W3: when no default is configured, manager.spawn_instance must "
+            "W3: when no default is configured, manager.spawn_instance_with_mcp must "
             f"receive version_tag=None; got: {call_kwargs.get('version_tag')!r}"
         )
 
@@ -416,6 +418,6 @@ class TestSpawnCouncilorResolvesDefaultVersion:
         assert "version_tag" in str(excinfo.value), (
             f"ValidationError should mention version_tag; got: {excinfo.value}"
         )
-        # And manager.spawn_instance must NOT have been called — the bad
+        # And manager.spawn_instance_with_mcp must NOT have been called — the bad
         # arg must short-circuit before any spawn work.
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()

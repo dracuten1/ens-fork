@@ -284,8 +284,10 @@ def make_spawn_manager(
         return_value=""
     )
 
-    # The SYNC facade method. Returns (instance_id, validated_model_override).
+    # Keep the sync facade mock for manager-level tests; tool-level calls
+    # now use the async MCP-preload wrapper and request its validated model.
     manager.spawn_instance = MagicMock(return_value=spawn_result)
+    manager.spawn_instance_with_mcp = AsyncMock(return_value=spawn_result)
 
     # Async DB-touching helpers used by the tool body.
     manager._instance_repository = MagicMock()

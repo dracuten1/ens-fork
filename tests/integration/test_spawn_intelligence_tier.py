@@ -11,7 +11,7 @@ The test-shape contract (B3 plan):
     ``create_instance_tools(...)``); the tool is invoked with
     ``await spawn_instance.coroutine(...)``; assertions cover the
     RETURNED STRING and (where applicable) the
-    ``manager.spawn_instance(...)`` kwargs.
+    ``manager.spawn_instance_with_mcp(...)`` kwargs.
   - **Legacy / default pins (I, J)** stay MANAGER-level — they call
     ``manager.spawn_instance(...)`` synchronously (the facade is SYNC;
     no ``await``). ``model_tier`` exists ONLY on the tool surface (D7);
@@ -83,7 +83,7 @@ class TestSpawnIntelligenceTierSuccess:
         ``allowed_models`` + default configured model → tool returns a
         string starting with the spawned-instance id prefix AND carrying
         the visibility line ``model='agentic' (model_tier='high')``. The
-        SYNC facade ``manager.spawn_instance(...)`` receives
+        async MCP wrapper ``manager.spawn_instance_with_mcp(...)`` receives
         ``model='agentic'`` as the priority-1 override (D7 — no
         ``model_tier`` kwarg crosses the facade).
         """
@@ -112,29 +112,15 @@ class TestSpawnIntelligenceTierSuccess:
             f"expected W3 visibility line in return; got: {result!r}"
         )
 
-        # (3) Facade received ``model='agentic'`` as the priority-1 override.
-        assert manager.spawn_instance.called, "manager.spawn_instance was not called"
-        call_kwargs = manager.spawn_instance.call_args.kwargs
-        assert call_kwargs.get("model") == "agentic", (
-            f"manager.spawn_instance must receive resolved model='agentic'; "
-            f"got: {call_kwargs.get('model')!r}"
-        )
-        # D7: NO ``model_tier`` kwarg on the facade.
-        assert "model_tier" not in manager.spawn_instance.call_args.kwargs, (
-            f"D7 violated — manager.spawn_instance received model_tier kwarg: "
-            f"{list(manager.spawn_instance.call_args.kwargs)}"
-        )
+        # (3) The async tool wrapper received the resolved model override.
+        assert manager.spawn_instance_with_mcp.called, "MCP spawn wrapper was not called"
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
+        assert call_kwargs.get("model") == "agentic"
+        assert call_kwargs.get("return_validated_model") is True
+        assert "model_tier" not in call_kwargs
 
-        # (4) Persistence — the SYNC facade stub returns
-        # ``("new-spawn-instance-id", "agentic")`` (the
-        # ``validated_model_override``); the tool's return does NOT
-        # re-resolve the persistence layer (Pin V owns that contract
-        # in Phase 5). For Pin G, the persistence claim is the
-        # facade's second tuple element — which the tool does not
-        # surface; we assert it here as the integration contract.
-        # (Phase 5 Pin V tests the real DB round-trip.)
-        spawn_result = manager.spawn_instance.return_value
-        assert spawn_result[1] == "agentic"
+        # (4) The wrapper stub models the lifecycle's validated override.
+        assert manager.spawn_instance_with_mcp.return_value[1] == "agentic"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -195,8 +181,8 @@ class TestSpawnIntelligenceTierLoud:
 
         # The facade must NOT have been called — the loud-raise aborts
         # before manager.spawn_instance is reached.
-        assert not manager.spawn_instance.called, (
-            "manager.spawn_instance should NOT be called when tier "
+        assert not manager.spawn_instance_with_mcp.called, (
+            "MCP spawn wrapper should NOT be called when tier "
             "validation raises loud"
         )
 
@@ -384,8 +370,8 @@ class TestBothParamsPrecedence:
                 )
 
         # (1) Spawn proceeds — no ValueError.
-        assert manager.spawn_instance.called
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        assert manager.spawn_instance_with_mcp.called
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         # (2) Tier-resolved model wins.
         assert call_kwargs.get("model") == "agentic", (
             f"tier-resolved model must win over legacy model=; got: "
@@ -433,10 +419,10 @@ class TestBothParamsPrecedence:
                     agent_id="coder", model="coding", model_tier="high"
                 )
 
-        assert manager.spawn_instance.called
-        assert manager.spawn_instance.call_args.kwargs.get("model") == "gpt-5", (
+        assert manager.spawn_instance_with_mcp.called
+        assert manager.spawn_instance_with_mcp.call_args.kwargs.get("model") == "gpt-5", (
             f"operator-remap must thread into resolver; got: "
-            f"{manager.spawn_instance.call_args.kwargs.get('model')!r}"
+            f"{manager.spawn_instance_with_mcp.call_args.kwargs.get('model')!r}"
         )
         assert "model='gpt-5' (model_tier='high')" in result, (
             f"boot-snapshot value must drive W3 visibility line; got: {result!r}"
@@ -515,8 +501,8 @@ class TestBothParamsInvalidLegacyModel:
                 )
 
         # (1) Spawn proceeds.
-        assert manager.spawn_instance.called
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        assert manager.spawn_instance_with_mcp.called
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         # (2) Tier-resolved canonical model — NOT the bogus legacy value.
         assert call_kwargs.get("model") == "agentic", (
             f"tier-resolved model must win; got: {call_kwargs.get('model')!r}"

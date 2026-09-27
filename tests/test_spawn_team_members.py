@@ -15,7 +15,7 @@ also cover the post-alias-removal standalone 'coder' agent on BOTH sides
 of the comparison.
 
 These tests are pure authorization logic — no DB transactions are touched
-because the gate runs before ``manager.spawn_instance(...)``. The
+because the gate runs before ``manager.spawn_instance_with_mcp(...)``. The
 verification strategy is:
 
   * Inject a ``MagicMock`` manager whose ``spawn_instance`` records the
@@ -71,10 +71,8 @@ def _make_manager(*, spawn_result=("new-instance-id-12345", None)) -> MagicMock:
 
     The manager exposes:
       * ``_lifecycle_service._format_model_fallback_notice`` — returns "".
-      * ``spawn_instance`` — synchronous MagicMock returning a successful
-        ``(instance_id, validated_model_override)`` tuple. NOTE:
-        ``manager.spawn_instance`` is the SYNC lifecycle method (not the
-        async tool) — see ``daemon/services/instance_lifecycle.py``.
+      * ``spawn_instance_with_mcp`` — async mock returning the lifecycle's
+        ``(instance_id, validated_model_override)`` tuple to the tool.
       * ``_instance_repository.get`` — used for project_id auto-inherit;
         returns None to keep the test deterministic.
     """
@@ -82,7 +80,7 @@ def _make_manager(*, spawn_result=("new-instance-id-12345", None)) -> MagicMock:
     manager._lifecycle_service = MagicMock()
     manager._lifecycle_service._format_model_fallback_notice = MagicMock(return_value="")
 
-    manager.spawn_instance = MagicMock(return_value=spawn_result)
+    manager.spawn_instance_with_mcp = AsyncMock(return_value=spawn_result)
 
     # _get_instance_project_id calls manager._instance_repository.get; return None
     # so the test doesn't need a real project store.
@@ -149,8 +147,8 @@ class TestTeamMembersAuthorization:
             f"Should include the new instance_id; got: {result!r}"
         )
         # Manager's spawn_instance was called exactly once.
-        manager.spawn_instance.assert_called_once()
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        manager.spawn_instance_with_mcp.assert_called_once()
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs["agent_id"] == "developer"
         assert call_kwargs["parent_id"] == "parent-instance-id"
 
@@ -175,12 +173,12 @@ class TestTeamMembersAuthorization:
             assert not result.startswith("ERROR"), (
                 f"leader should be allowed to spawn '{agent_id}'; got: {result!r}"
             )
-            manager.spawn_instance.assert_called_once()
+            manager.spawn_instance_with_mcp.assert_called_once()
 
     async def test_invalid_spawn_leader_cannot_spawn_leader(self):
         """'leader' is NOT in leader's own team_members — must be rejected.
 
-        The check happens BEFORE manager.spawn_instance is called.
+        The check happens BEFORE manager.spawn_instance_with_mcp is called.
         """
         manager = _make_manager()
         spawn = _get_spawn_instance_tool(manager, caller_agent_id="leader")
@@ -195,7 +193,7 @@ class TestTeamMembersAuthorization:
             f"Should list allowed team members; got: {result!r}"
         )
         # CRITICAL: the manager's spawn_instance must NOT have been called.
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_valid_spawn_leader_can_spawn_explorer(self):
         """'leader' can now spawn 'explorer' (added in W1).
@@ -219,8 +217,8 @@ class TestTeamMembersAuthorization:
             f"Should include the new instance_id; got: {result!r}"
         )
         # Manager's spawn_instance was called exactly once.
-        manager.spawn_instance.assert_called_once()
-        call_kwargs = manager.spawn_instance.call_args.kwargs
+        manager.spawn_instance_with_mcp.assert_called_once()
+        call_kwargs = manager.spawn_instance_with_mcp.call_args.kwargs
         assert call_kwargs["agent_id"] == "explorer"
         assert call_kwargs["parent_id"] == "parent-instance-id"
 
@@ -290,7 +288,7 @@ class TestTeamMembersAuthorization:
             f"['explorer', 'image-reader', 'kb-writer', 'worker']; "
             f"got: {result!r}"
         )
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_unknown_caller_agent_is_denied(self):
         """A caller agent_id that doesn't exist in the registry → deny.
@@ -308,13 +306,13 @@ class TestTeamMembersAuthorization:
         assert isinstance(result, str)
         assert result.startswith("ERROR")
         assert "not allowed to spawn" in result
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_unknown_requested_agent_is_denied(self):
         """An unknown requested agent_id (typo) → deny with helpful message.
 
         Note: the membership check happens BEFORE the downstream
-        ``manager.spawn_instance`` "Agent not found" ValueError. We surface
+        ``manager.spawn_instance_with_mcp`` "Agent not found" ValueError. We surface
         the rejection as "not allowed to spawn" which is also informative.
         """
         manager = _make_manager()
@@ -325,7 +323,7 @@ class TestTeamMembersAuthorization:
         assert isinstance(result, str)
         assert result.startswith("ERROR")
         assert "not allowed to spawn" in result
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_standalone_coder_rejected_by_leader_team_members(self):
         """'coder' is now a STANDALONE agent (no alias to 'developer').
@@ -350,7 +348,7 @@ class TestTeamMembersAuthorization:
         )
         assert "not allowed to spawn" in result, f"Got: {result!r}"
         # Manager must NOT have been invoked
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_standalone_coder_caller_has_empty_team_members(self):
         """'coder' is a standalone agent with empty team_members.
@@ -373,7 +371,7 @@ class TestTeamMembersAuthorization:
         )
         assert "not allowed to spawn" in result, f"Got: {result!r}"
         # Manager must NOT have been invoked
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_empty_agent_id_request_rejected(self):
         """Empty requested agent_id is rejected with a clear message.
@@ -394,14 +392,14 @@ class TestTeamMembersAuthorization:
         except (ValueError, Exception) as e:
             # Pydantic validation may raise or may bubble through. Either
             # way, no instance was created.
-            manager.spawn_instance.assert_not_called()
+            manager.spawn_instance_with_mcp.assert_not_called()
             return
 
         # If the schema validator allowed it through, our gate still
         # produces a clear ERROR.
         assert isinstance(result, str)
         assert result.startswith("ERROR")
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
     async def test_missing_caller_agent_id_rejected(self):
         """Empty caller_agent_id (wiring bug) → deny with clear error."""
@@ -415,7 +413,7 @@ class TestTeamMembersAuthorization:
         assert "caller agent_id" in result.lower() or "wiring" in result.lower(), (
             f"Should explain the wiring/configuration bug; got: {result!r}"
         )
-        manager.spawn_instance.assert_not_called()
+        manager.spawn_instance_with_mcp.assert_not_called()
 
 
 class TestTeamMembersRegistryParsing:
